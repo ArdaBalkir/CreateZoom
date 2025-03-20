@@ -1,0 +1,61 @@
+version: "3.9"
+services:
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6379:6379"
+
+  main-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api-service
+    ports:
+      - "8000:8000"
+    environment:
+      - IO_WORKER_URL=http://io-worker:8001
+      - PROCESS_WORKER_URL=http://process-worker:8002
+      - API_PORT=8000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - io-worker
+      - process-worker
+      - redis
+
+  io-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: io-worker
+    ports:
+      - "8001:8001"
+    environment:
+      - PROCESS_WORKER_URL=http://process-worker:8002
+      - IO_PORT=8001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - data_downloads:/data/downloads
+    depends_on:
+      - redis
+
+  process-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: process-worker
+    ports:
+      - "8002:8002"
+    environment:
+      - PROCESS_PORT=8002
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - data_outputs:/data/outputs
+    depends_on:
+      - redis
+
+volumes:
+  data_downloads:
+  data_outputs:
