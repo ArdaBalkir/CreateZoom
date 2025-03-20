@@ -8,8 +8,7 @@ services:
   main-api:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: api-service
+      dockerfile: Dockerfile.api
     ports:
       - "8000:8000"
     environment:
@@ -26,8 +25,7 @@ services:
   io-worker:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: io-worker
+      dockerfile: Dockerfile.io
     ports:
       - "8001:8001"
     environment:
@@ -36,15 +34,14 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
-      - data_downloads:/data/downloads
+      - shared_data:/data
     depends_on:
       - redis
 
   process-worker:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: process-worker
+      dockerfile: Dockerfile.process
     ports:
       - "8002:8002"
     environment:
@@ -52,10 +49,9 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
-      - data_outputs:/data/outputs
+      - shared_data:/data
     depends_on:
       - redis
 
 volumes:
-  data_downloads:
-  data_outputs:
+  shared_data:

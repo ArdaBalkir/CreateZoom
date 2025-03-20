@@ -124,7 +124,7 @@ async def get_download(path: str, token: str, task_id: str):
                                     raise
 
                             logger.info(f"Download completed for task {task_id}")
-                            return os.path.relpath(filepath)
+                            return filepath
                         else:
                             raise Exception(
                                 f"Failed to download file. Status code: {download_response.status}"

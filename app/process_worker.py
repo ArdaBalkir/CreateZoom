@@ -91,10 +91,23 @@ async def deepzoom(path: str):
     """Creates a DeepZoom pyramid from the image file."""
 
     def process_image():
-        logger.info(f"Creating DeepZoom pyramid for {path}")
-        image = pyvips.Image.new_from_file(path)
+        # Ensure path is absolute and correctly formatted for the container
+        # If the path is relative, make it absolute based on DATA_ROOT
+        if not os.path.isabs(path):
+            abs_path = os.path.join(DATA_ROOT, path)
+        else:
+            abs_path = path
+        # This results in the donwloaded file not being found
+
+        logger.info(f"Creating DeepZoom pyramid for {abs_path}")
+
+        # Check if file exists
+        if not os.path.exists(abs_path):
+            raise FileNotFoundError(f"Image file not found: {abs_path}")
+
+        image = pyvips.Image.new_from_file(abs_path)
         os.makedirs(OUTPUTS_DIR, exist_ok=True)
-        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(path))
+        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(abs_path))
         image.dzsave(output_path)
         return output_path + ".dzi"
 

@@ -17,7 +17,7 @@ COPY ./app/process_worker.py .
 
 # Create directories and set permissions
 RUN mkdir -p /data/outputs && chmod -R 777 /data
-VOLUME ["/data/outputs"]
+VOLUME ["/data"]
 
 # Expose port
 EXPOSE 8002

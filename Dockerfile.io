@@ -12,7 +12,7 @@ COPY ./app/io_worker.py .
 
 # Create directories and set permissions
 RUN mkdir -p /data/downloads && chmod -R 777 /data
-VOLUME ["/data/downloads"]
+VOLUME ["/data"]
 
 # Expose port
 EXPOSE 8001
