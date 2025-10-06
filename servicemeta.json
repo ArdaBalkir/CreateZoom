@@ -20,6 +20,6 @@
   "documentation": "https://github.com/Neural-Systems-at-UIO/CreateZoom/blob/main/README.md",
   "identifier": "RRID:SCR_026625",
   "name": "CreateZoom",
-  "url": "https://deepzoom.apps.ebrains.eu/",
+  "url": "https://createzoom.apps.ebrains.eu/",
   "version": "1.0.8"
 }
