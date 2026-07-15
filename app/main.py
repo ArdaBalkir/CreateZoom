@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="CreateZoom API",
     description="DeepZoom pyramid creation service for EBRAINS",
-    version="1.0.4"
+    version="1.0.4",
 )
 
 # CORS configuration
@@ -56,7 +56,7 @@ async def health():
 async def deepzoom_endpoint(request: Request):
     """
     Create a new DeepZoom conversion task.
-    
+
     Expects JSON body with:
     - path: Source file path in bucket
     - target_path: Destination path in bucket
@@ -64,19 +64,21 @@ async def deepzoom_endpoint(request: Request):
     """
     try:
         data = await request.json()
-        
+
         # Extract user info for logging
         token = data.get("token", "")
         user_info = extract_user_info(token) if token else {}
-        user_display = f"{user_info.get('name') or user_info.get('username') or 'Unknown'}"
-        user_email = user_info.get('email') or 'no-email'
-        
+        user_display = (
+            f"{user_info.get('name') or user_info.get('username') or 'Unknown'}"
+        )
+        user_email = user_info.get("email") or "no-email"
+
         logger.info(
             "[REQUEST RECEIVED] User: %s (%s) | Path: %s | Target: %s",
             user_display,
             user_email,
             data.get("path", "N/A"),
-            data.get("target_path", "N/A")
+            data.get("target_path", "N/A"),
         )
 
         # Validate required parameters
@@ -84,7 +86,8 @@ async def deepzoom_endpoint(request: Request):
             if not data.get(param):
                 logger.error(
                     "[REQUEST REJECTED] User: %s | Missing parameter: %s",
-                    user_display, param
+                    user_display,
+                    param,
                 )
                 raise HTTPException(
                     status_code=400, detail=f"Missing required parameter: {param}"
@@ -92,17 +95,21 @@ async def deepzoom_endpoint(request: Request):
             if not isinstance(data[param], str) or not data[param].strip():
                 logger.error(
                     "[REQUEST REJECTED] User: %s | Invalid parameter: %s",
-                    user_display, param
+                    user_display,
+                    param,
                 )
                 raise HTTPException(
                     status_code=400, detail=f"{param} must be a non-empty string"
                 )
 
         task_id = str(uuid.uuid4())
-        
+
         logger.info(
             "[TASK CREATED] Task: %s | User: %s (%s) | Path: %s",
-            task_id, user_display, user_email, data["path"]
+            task_id,
+            user_display,
+            user_email,
+            data["path"],
         )
 
         await task_manager.add_task(
@@ -119,7 +126,9 @@ async def deepzoom_endpoint(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("[REQUEST ERROR] Error processing request: %s", str(e), exc_info=True)
+        logger.error(
+            "[REQUEST ERROR] Error processing request: %s", str(e), exc_info=True
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -127,7 +136,7 @@ async def deepzoom_endpoint(request: Request):
 async def get_task_status(task_id: str):
     """
     Get the status of a DeepZoom conversion task.
-    
+
     Returns task details including:
     - status: pending, processing, completed, or failed
     - current_step: Current processing stage
@@ -140,21 +149,24 @@ async def get_task_status(task_id: str):
     try:
         logger.debug("[STATUS CHECK] Task: %s", task_id)
         task = task_manager.task_store.get_task(task_id)
-        
+
         if not task:
             logger.warning("[STATUS NOT FOUND] Task: %s", task_id)
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
         return task
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("[STATUS ERROR] Task: %s | Error: %s", task_id, str(e), exc_info=True)
+        logger.error(
+            "[STATUS ERROR] Task: %s | Error: %s", task_id, str(e), exc_info=True
+        )
         raise
 
 
 # Admin/Dashboard endpoints
+
 
 async def verify_ebrains_token(token: str) -> bool:
     """
@@ -171,8 +183,7 @@ async def verify_ebrains_token(token: str) -> bool:
                 email = data.get("email", "")
                 is_authorized = email.endswith("@medisin.uio.no")
                 logger.info(
-                    "[AUTH CHECK] Email: %s | Authorized: %s",
-                    email, is_authorized
+                    "[AUTH CHECK] Email: %s | Authorized: %s", email, is_authorized
                 )
                 return is_authorized
     return False
@@ -192,18 +203,20 @@ async def get_all_tasks(request: Request):
             raise HTTPException(status_code=401, detail="Missing or invalid token")
 
         token = auth_header.split(" ")[1]
-        
+
         # Extract user info for logging
         user_info = extract_user_info(token)
-        user_display = f"{user_info.get('name') or user_info.get('username') or 'Unknown'}"
-        
+        user_display = (
+            f"{user_info.get('name') or user_info.get('username') or 'Unknown'}"
+        )
+
         logger.info("[ADMIN ACCESS ATTEMPT] User: %s", user_display)
 
         is_authorized = await verify_ebrains_token(token)
         if not is_authorized:
             logger.warning(
                 "[ADMIN ACCESS DENIED] User: %s | Unauthorized email domain",
-                user_display
+                user_display,
             )
             raise HTTPException(status_code=403, detail="Unauthorized email domain")
 
@@ -211,7 +224,8 @@ async def get_all_tasks(request: Request):
 
         logger.info(
             "[ADMIN ACCESS GRANTED] User: %s | Tasks returned: %d",
-            user_display, len(task_manager.task_store.tasks)
+            user_display,
+            len(task_manager.task_store.tasks),
         )
 
         return {
@@ -224,4 +238,3 @@ async def get_all_tasks(request: Request):
     except Exception as e:
         logger.error("[ADMIN ERROR] Error getting tasks: %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
