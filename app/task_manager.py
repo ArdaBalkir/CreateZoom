@@ -23,6 +23,8 @@ class TaskStore:
     def __init__(self, ttl_hours: int = 72):
         self.tasks: Dict[str, dict] = {}
         self.ttl = timedelta(hours=ttl_hours)
+        self.cleanup_interval = timedelta(minutes=15)
+        self.last_cleanup = datetime.now()
         logger.info("TaskStore initialized with TTL: %d hours", ttl_hours)
 
     def add_task(
@@ -39,6 +41,10 @@ class TaskStore:
             task_data: Dictionary containing path and target_path
             user_info: Optional user information from JWT
         """
+        # Cleanup used to run only when the admin endpoint was requested, so
+        # this process-local dictionary could grow for the lifetime of the
+        # service. Amortize cleanup during normal task submissions instead.
+        self.cleanup_old_tasks(force=False)
         self.tasks[task_id] = {
             **task_data,
             "created_at": datetime.now(),
@@ -78,10 +84,14 @@ class TaskStore:
         """Get task by ID."""
         return self.tasks.get(task_id)
 
-    def cleanup_old_tasks(self):
+    def cleanup_old_tasks(self, force: bool = True):
         """Remove tasks older than TTL."""
-        before_count = len(self.tasks)
         now = datetime.now()
+        if not force and now - self.last_cleanup < self.cleanup_interval:
+            return
+
+        self.last_cleanup = now
+        before_count = len(self.tasks)
         self.tasks = {
             task_id: task
             for task_id, task in self.tasks.items()
@@ -97,7 +107,10 @@ class TaskManager:
     Manages task processing with semaphore-based concurrency control.
     """
     
-    PROCESS_WORKERS = 12
+    # Each task can run a libvips pipeline as well as zip and upload buffers.
+    # Twelve simultaneous pipelines caused multiplicative native memory use.
+    # Keep the safe default small while allowing deployment-specific tuning.
+    PROCESS_WORKERS = max(1, int(os.getenv("PROCESS_WORKERS", "8")))
 
     def __init__(self):
         self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)

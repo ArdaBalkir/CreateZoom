@@ -19,6 +19,15 @@ to deploy, run build in docker and the image can be deployed anywhere. There are
 docker build -t appname .
 ```
 
+The container defaults to eight concurrent conversion tasks and two libvips
+worker threads per image to keep peak memory bounded. Override
+`PROCESS_WORKERS` or `VIPS_CONCURRENCY` at deployment time only when the
+container has enough memory for the additional parallel work.
+
+`VIPS_CONCURRENCY` sets software worker threads per image pipeline, not
+physical CPU cores. Eight jobs converting at once with `VIPS_CONCURRENCY=2`
+can use roughly sixteen libvips worker threads, plus application and I/O threads.
+
 ### Usage
 
 ```json

@@ -18,7 +18,9 @@ DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
     sock_connect=60,  # 60 seconds to establish connection
     sock_read=300,  # 5 minutes socket read timeout
 )
-CHUNK_SIZE = 64 * 1024 * 1024  # 64MB chunks
+# Keep each in-flight download buffer small. With concurrent jobs, the previous
+# 64 MiB value alone could account for hundreds of MiB of resident memory.
+CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
 DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
@@ -247,15 +249,11 @@ async def upload_file(
                     task_id
                 )
                 
-                async with aiofiles.open(zip_path, "rb") as file:
-                    file_data = await file.read()
-                    
-                    logger.debug(
-                        "[UPLOAD] Task: %s | Read %d bytes from local file, uploading...",
-                        task_id, len(file_data)
-                    )
-                    
-                    async with session.put(upload_url, data=file_data) as upload_response:
+                # aiohttp streams file objects in bounded chunks and infers the
+                # content length. Reading the archive into bytes here retained
+                # the entire .dzip for the duration of every concurrent upload.
+                with open(zip_path, "rb") as file:
+                    async with session.put(upload_url, data=file) as upload_response:
                         logger.info(
                             "[UPLOAD] Task: %s | Upload response status: %d",
                             task_id, upload_response.status

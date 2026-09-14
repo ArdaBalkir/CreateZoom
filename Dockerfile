@@ -27,6 +27,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Bound nested concurrency and glibc arena growth. Both values remain
+# overridable at deployment time for larger containers.
+ENV PROCESS_WORKERS=8 \
+    VIPS_CONCURRENCY=2 \
+    MALLOC_ARENA_MAX=2
+
 
 WORKDIR /app
 RUN mkdir -p /app/temp/downloads /app/temp/outputs && \

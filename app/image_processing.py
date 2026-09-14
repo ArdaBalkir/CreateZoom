@@ -5,10 +5,16 @@ import os
 import asyncio
 import logging
 import zipfile
-from io import BytesIO
+
+# libvips otherwise defaults to the host CPU count. Since the service can run
+# more than one conversion at a time, that default can multiply both threads
+# and native working memory very quickly. Operators can still override it.
+os.environ.setdefault("VIPS_CONCURRENCY", "2")
+
 import pyvips
 
-# Suppress pyvips worker/thread messages
+# DeepZoom is a streaming operation, so retaining completed libvips operations
+# provides no benefit to this service.
 pyvips.cache_set_max(0)
 logging.getLogger('pyvips').setLevel(logging.WARNING)
 
@@ -31,6 +37,7 @@ async def create_deepzoom(path: str, task_id: str = "unknown") -> str:
         Path to the created DZI file
     """
     def process_image():
+        image = None
         logger.info(
             "[DEEPZOOM START] Task: %s | Source: %s",
             task_id, path
@@ -56,9 +63,6 @@ async def create_deepzoom(path: str, task_id: str = "unknown") -> str:
                 task_id, dzi_path
             )
             
-            # Explicitly delete image to release file handle (important on Windows)
-            del image
-            
             return dzi_path
             
         except Exception as e:
@@ -68,6 +72,11 @@ async def create_deepzoom(path: str, task_id: str = "unknown") -> str:
                 exc_info=True
             )
             raise
+        finally:
+            # Drop the last Python reference promptly on both success and error.
+            # The libvips operation cache is disabled above, so its native
+            # pipeline can then be released.
+            image = None
 
     return await asyncio.to_thread(process_image)
 
@@ -100,8 +109,9 @@ async def create_zip_archive(path: str, task_id: str = "unknown") -> str:
             file_count = 0
             total_size = 0
             
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zipf:
+            # Write directly to disk. The previous BytesIO + getvalue() path
+            # held one full archive in memory and briefly made a second copy.
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zipf:
                 zipf.write(dzi_file, os.path.basename(dzi_file))
                 file_count += 1
                 
@@ -113,10 +123,6 @@ async def create_zip_archive(path: str, task_id: str = "unknown") -> str:
                         file_count += 1
                         total_size += os.path.getsize(file_path)
 
-            # Write the buffer to disk
-            with open(zip_path, "wb") as f:
-                f.write(zip_buffer.getvalue())
-            
             final_size = os.path.getsize(zip_path)
             
             logger.info(
@@ -127,6 +133,15 @@ async def create_zip_archive(path: str, task_id: str = "unknown") -> str:
             return zip_path
             
         except Exception as e:
+            # Do not leave a partial archive behind if ZipFile failed.
+            try:
+                if os.path.exists(zip_path):
+                    os.remove(zip_path)
+            except OSError:
+                logger.warning(
+                    "[ZIP CLEANUP ERROR] Task: %s | Partial output: %s",
+                    task_id, zip_path, exc_info=True
+                )
             logger.error(
                 "[ZIP ERROR] Task: %s | Error: %s",
                 task_id, str(e),

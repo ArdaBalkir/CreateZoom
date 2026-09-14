@@ -1,0 +1,226 @@
+warning: in the working copy of 'Dockerfile', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/file_operations.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/image_processing.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'app/task_manager.py', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/Dockerfile b/Dockerfile[m
+[1mindex f6da2bb..d2dc135 100644[m
+[1m--- a/Dockerfile[m
+[1m+++ b/Dockerfile[m
+[36m@@ -27,6 +27,12 @@[m [mRUN apt-get update && apt-get install -y --no-install-recommends \[m
+ COPY --from=builder /opt/venv /opt/venv[m
+ ENV PATH="/opt/venv/bin:$PATH"[m
+ [m
+[32m+[m[32m# Bound nested concurrency and glibc arena growth. Both values remain[m
+[32m+[m[32m# overridable at deployment time for larger containers.[m
+[32m+[m[32mENV PROCESS_WORKERS=2 \[m
+[32m+[m[32m    VIPS_CONCURRENCY=2 \[m
+[32m+[m[32m    MALLOC_ARENA_MAX=2[m
+[32m+[m
+ [m
+ WORKDIR /app[m
+ RUN mkdir -p /app/temp/downloads /app/temp/outputs && \[m
+[36m@@ -39,4 +45,4 @@[m [mCOPY ./app ./app[m
+ [m
+ EXPOSE 8000[m
+ [m
+[31m-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"][m
+\ No newline at end of file[m
+[32m+[m[32mCMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"][m
+[1mdiff --git a/README.md b/README.md[m
+[1mindex 7952bda..85586df 100644[m
+[1m--- a/README.md[m
+[1m+++ b/README.md[m
+[36m@@ -19,6 +19,11 @@[m [mto deploy, run build in docker and the image can be deployed anywhere. There are[m
+ docker build -t appname .[m
+ ```[m
+ [m
+[32m+[m[32mThe container defaults to two concurrent conversion tasks and two libvips[m
+[32m+[m[32mworker threads per image to keep peak memory bounded. Override[m
+[32m+[m[32m`PROCESS_WORKERS` or `VIPS_CONCURRENCY` at deployment time only when the[m
+[32m+[m[32mcontainer has enough memory for the additional parallel work.[m
+[32m+[m
+ ### Usage[m
+ [m
+ ```json[m
+[1mdiff --git a/app/file_operations.py b/app/file_operations.py[m
+[1mindex e09954c..2e5b6b6 100644[m
+[1m--- a/app/file_operations.py[m
+[1m+++ b/app/file_operations.py[m
+[36m@@ -18,7 +18,9 @@[m [mDOWNLOAD_TIMEOUT = aiohttp.ClientTimeout([m
+     sock_connect=60,  # 60 seconds to establish connection[m
+     sock_read=300,  # 5 minutes socket read timeout[m
+ )[m
+[31m-CHUNK_SIZE = 64 * 1024 * 1024  # 64MB chunks[m
+[32m+[m[32m# Keep each in-flight download buffer small. With concurrent jobs, the previous[m
+[32m+[m[32m# 64 MiB value alone could account for hundreds of MiB of resident memory.[m
+[32m+[m[32mCHUNK_SIZE = 1024 * 1024  # 1 MiB[m
+ [m
+ DATA_ROOT = "/data"[m
+ DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")[m
+[36m@@ -247,15 +249,11 @@[m [masync def upload_file([m
+                     task_id[m
+                 )[m
+                 [m
+[31m-                async with aiofiles.open(zip_path, "rb") as file:[m
+[31m-                    file_data = await file.read()[m
+[31m-                    [m
+[31m-                    logger.debug([m
+[31m-                        "[UPLOAD] Task: %s | Read %d bytes from local file, uploading...",[m
+[31m-                        task_id, len(file_data)[m
+[31m-                    )[m
+[31m-                    [m
+[31m-                    async with session.put(upload_url, data=file_data) as upload_response:[m
+[32m+[m[32m                # aiohttp streams file objects in bounded chunks and infers the[m
+[32m+[m[32m                # content length. Reading the archive into bytes here retained[m
+[32m+[m[32m                # the entire .dzip for the duration of every concurrent upload.[m
+[32m+[m[32m                with open(zip_path, "rb") as file:[m
+[32m+[m[32m                    async with session.put(upload_url, data=file) as upload_response:[m
+                         logger.info([m
+                             "[UPLOAD] Task: %s | Upload response status: %d",[m
+                             task_id, upload_response.status[m
+[1mdiff --git a/app/image_processing.py b/app/image_processing.py[m
+[1mindex daa8b02..9ca4363 100644[m
+[1m--- a/app/image_processing.py[m
+[1m+++ b/app/image_processing.py[m
+[36m@@ -5,10 +5,16 @@[m [mimport os[m
+ import asyncio[m
+ import logging[m
+ import zipfile[m
+[31m-from io import BytesIO[m
+[32m+[m
+[32m+[m[32m# libvips otherwise defaults to the host CPU count. Since the service can run[m
+[32m+[m[32m# more than one conversion at a time, that default can multiply both threads[m
+[32m+[m[32m# and native working memory very quickly. Operators can still override it.[m
+[32m+[m[32mos.environ.setdefault("VIPS_CONCURRENCY", "2")[m
+[32m+[m
+ import pyvips[m
+ [m
+[31m-# Suppress pyvips worker/thread messages[m
+[32m+[m[32m# DeepZoom is a streaming operation, so retaining completed libvips operations[m
+[32m+[m[32m# provides no benefit to this service.[m
+ pyvips.cache_set_max(0)[m
+ logging.getLogger('pyvips').setLevel(logging.WARNING)[m
+ [m
+[36m@@ -31,6 +37,7 @@[m [masync def create_deepzoom(path: str, task_id: str = "unknown") -> str:[m
+         Path to the created DZI file[m
+     """[m
+     def process_image():[m
+[32m+[m[32m        image = None[m
+         logger.info([m
+             "[DEEPZOOM START] Task: %s | Source: %s",[m
+             task_id, path[m
+[36m@@ -56,9 +63,6 @@[m [masync def create_deepzoom(path: str, task_id: str = "unknown") -> str:[m
+                 task_id, dzi_path[m
+             )[m
+             [m
+[31m-            # Explicitly delete image to release file handle (important on Windows)[m
+[31m-            del image[m
+[31m-            [m
+             return dzi_path[m
+             [m
+         except Exception as e:[m
+[36m@@ -68,6 +72,11 @@[m [masync def create_deepzoom(path: str, task_id: str = "unknown") -> str:[m
+                 exc_info=True[m
+             )[m
+             raise[m
+[32m+[m[32m        finally:[m
+[32m+[m[32m            # Drop the last Python reference promptly on both success and error.[m
+[32m+[m[32m            # The libvips operation cache is disabled above, so its native[m
+[32m+[m[32m            # pipeline can then be released.[m
+[32m+[m[32m            image = None[m
+ [m
+     return await asyncio.to_thread(process_image)[m
+ [m
+[36m@@ -100,8 +109,9 @@[m [masync def create_zip_archive(path: str, task_id: str = "unknown") -> str:[m
+             file_count = 0[m
+             total_size = 0[m
+             [m
+[31m-            zip_buffer = BytesIO()[m
+[31m-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zipf:[m
+[32m+[m[32m            # Write directly to disk. The previous BytesIO + getvalue() path[m
+[32m+[m[32m            # held one full archive in memory and briefly made a second copy.[m
+[32m+[m[32m            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zipf:[m
+                 zipf.write(dzi_file, os.path.basename(dzi_file))[m
+                 file_count += 1[m
+                 [m
+[36m@@ -113,10 +123,6 @@[m [masync def create_zip_archive(path: str, task_id: str = "unknown") -> str:[m
+                         file_count += 1[m
+                         total_size += os.path.getsize(file_path)[m
+ [m
+[31m-            # Write the buffer to disk[m
+[31m-            with open(zip_path, "wb") as f:[m
+[31m-                f.write(zip_buffer.getvalue())[m
+[31m-            [m
+             final_size = os.path.getsize(zip_path)[m
+             [m
+             logger.info([m
+[36m@@ -127,6 +133,15 @@[m [masync def create_zip_archive(path: str, task_id: str = "unknown") -> str:[m
+             return zip_path[m
+             [m
+         except Exception as e:[m
+[32m+[m[32m            # Do not leave a partial archive behind if ZipFile failed.[m
+[32m+[m[32m            try:[m
+[32m+[m[32m                if os.path.exists(zip_path):[m
+[32m+[m[32m                    os.remove(zip_path)[m
+[32m+[m[32m            except OSError:[m
+[32m+[m[32m                logger.warning([m
+[32m+[m[32m                    "[ZIP CLEANUP ERROR] Task: %s | Partial output: %s",[m
+[32m+[m[32m                    task_id, zip_path, exc_info=True[m
+[32m+[m[32m                )[m
+             logger.error([m
+                 "[ZIP ERROR] Task: %s | Error: %s",[m
+                 task_id, str(e),[m
+[1mdiff --git a/app/task_manager.py b/app/task_manager.py[m
+[1mindex fbb61d5..9b83cad 100644[m
+[1m--- a/app/task_manager.py[m
+[1m+++ b/app/task_manager.py[m
+[36m@@ -23,6 +23,8 @@[m [mclass TaskStore:[m
+     def __init__(self, ttl_hours: int = 72):[m
+         self.tasks: Dict[str, dict] = {}[m
+         self.ttl = timedelta(hours=ttl_hours)[m
+[32m+[m[32m        self.cleanup_interval = timedelta(minutes=15)[m
+[32m+[m[32m        self.last_cleanup = datetime.now()[m
+         logger.info("TaskStore initialized with TTL: %d hours", ttl_hours)[m
+ [m
+     def add_task([m
+[36m@@ -39,6 +41,10 @@[m [mclass TaskStore:[m
+             task_data: Dictionary containing path and target_path[m
+             user_info: Optional user information from JWT[m
+         """[m
+[32m+[m[32m        # Cleanup used to run only when the admin endpoint was requested, so[m
+[32m+[m[32m        # this process-local dictionary could grow for the lifetime of the[m
+[32m+[m[32m        # service. Amortize cleanup during normal task submissions instead.[m
+[32m+[m[32m        self.cleanup_old_tasks(force=False)[m
+         self.tasks[task_id] = {[m
+             **task_data,[m
+             "created_at": datetime.now(),[m
+[36m@@ -78,10 +84,14 @@[m [mclass TaskStore:[m
+         """Get task by ID."""[m
+         return self.tasks.get(task_id)[m
+ [m
+[31m-    def cleanup_old_tasks(self):[m
+[32m+[m[32m    def cleanup_old_tasks(self, force: bool = True):[m
+         """Remove tasks older than TTL."""[m
+[31m-        before_count = len(self.tasks)[m
+         now = datetime.now()[m
+[32m+[m[32m        if not force and now - self.last_cleanup < self.cleanup_interval:[m
+[32m+[m[32m            return[m
+[32m+[m
+[32m+[m[32m        self.last_cleanup = now[m
+[32m+[m[32m        before_count = len(self.tasks)[m
+         self.tasks = {[m
+             task_id: task[m
+             for task_id, task in self.tasks.items()[m
+[36m@@ -97,7 +107,10 @@[m [mclass TaskManager:[m
+     Manages task processing with semaphore-based concurrency control.[m
+     """[m
+     [m
+[31m-    PROCESS_WORKERS = 12[m
+[32m+[m[32m    # Each task can run a libvips pipeline as well as zip and upload buffers.[m
+[32m+[m[32m    # Twelve simultaneous pipelines caused multiplicative native memory use.[m
+[32m+[m[32m    # Keep the safe default small while allowing deployment-specific tuning.[m
+[32m+[m[32m    PROCESS_WORKERS = max(1, int(os.getenv("PROCESS_WORKERS", "2")))[m
+ [m
+     def __init__(self):[m
+         self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)[m
